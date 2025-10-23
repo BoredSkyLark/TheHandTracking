@@ -1,1 +1,97 @@
+#press 'q' to quit
+
+import cv2
+import time
+import mediapipe as mp
+
+# --- Mediapipe setup ---
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_styles = mp.solutions.drawing_styles
+
+def main():
+    cap = cv2.VideoCapture(0)  # 0 = default webcam
+    # Optional: request higher resolution (falls back if unsupported)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+    # Hands detector
+    hands = mp_hands.Hands(
+        static_image_mode=False,       # video stream
+        max_num_hands=2,               # track up to 2 hands
+        model_complexity=1,            # 0/1/2 (higher = more accurate, slower)
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+
+    prev_time = 0.0
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                print("⚠️ Could not read frame from webcam.")
+                break
+            frame = cv2.flip(frame, 1) #mirror the image
+
+            # Convert BGR (OpenCV) -> RGB (MediaPipe), process, then back
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = hands.process(rgb)
+
+            # If hands detected, draw skeleton(s)
+            if results.multi_hand_landmarks:
+                # If available, also get handedness labels (Left/Right)
+                handedness_list = results.multi_handedness or []
+
+                for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                    # Draw links + joints with nice default styles
+                    mp_drawing.draw_landmarks(
+                        frame,
+                        hand_landmarks,
+                        mp_hands.HAND_CONNECTIONS,
+                        landmark_drawing_spec=mp_styles.get_default_hand_landmarks_style(),
+                        connection_drawing_spec=mp_styles.get_default_hand_connections_style()
+                    )
+
+                    # Optional: draw custom big joints for clearer skeleton
+                    h, w = frame.shape[:2]
+                    for i, lm in enumerate(hand_landmarks.landmark):
+                        cx, cy = int(lm.x * w), int(lm.y * h)
+                        cv2.circle(frame, (cx, cy), 4, (255, 255, 255), -1)    # white fill
+                        cv2.circle(frame, (cx, cy), 8, (0, 0, 0), 1)          # black outline
+
+                    # Label the hand (Left/Right + confidence)
+                    label = ""
+                    if idx < len(handedness_list):
+                        cls = handedness_list[idx].classification[0]
+                        label = f"{cls.label} ({cls.score:.2f})"
+                    if label:
+                        # Use index (landmark #8) to place label near fingertip if available
+                        tip = hand_landmarks.landmark[8]
+                        lx, ly = int(tip.x * w), int(tip.y * h) - 12
+                        cv2.putText(frame, label, (lx, max(20, ly)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 3, cv2.LINE_AA)
+                        cv2.putText(frame, label, (lx, max(20, ly)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
+
+            # FPS display
+            curr_time = time.time()
+            fps = 1.0 / (curr_time - prev_time) if prev_time != 0 else 0.0
+            prev_time = curr_time
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 1, cv2.LINE_AA)
+
+            cv2.imshow("Hand Tracking (press 'q' to quit)", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        hands.close()
+        cap.release()
+        cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
+
 
